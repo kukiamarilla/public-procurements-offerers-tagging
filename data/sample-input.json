@@ -1,0 +1,10 @@
+{
+  "ocid": "ocds-213czf-SAMPLE-2024",
+  "tenderId": "AD-SAMPLE-2024",
+  "awardIds": ["award-1", "award-2"],
+  "offerers": [
+    { "id": "1", "name": "Oferente A" },
+    { "id": "2", "name": "Oferente B" },
+    { "id": "3", "name": "Oferente C" }
+  ]
+}
