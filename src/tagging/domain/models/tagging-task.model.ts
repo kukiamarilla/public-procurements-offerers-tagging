@@ -22,5 +22,7 @@ export interface TaggingTaskModel {
   saved?: boolean;
   /** Cantidad de oferentes guardada (si saved) */
   savedOffererCount?: number;
+  /** Si fue descartada (PDFs incorrectos) */
+  discarded?: boolean;
   metadata?: Record<string, unknown>;
 }

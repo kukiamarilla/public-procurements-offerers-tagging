@@ -12,6 +12,7 @@ export function taggingTaskToDto(model: TaggingTaskModel): TaggingTaskDto {
     pdfCcoUrl: model.pdfCcoUrl,
     saved: model.saved,
     savedOffererCount: model.savedOffererCount,
+    discarded: model.discarded,
     metadata: model.metadata,
   };
 }

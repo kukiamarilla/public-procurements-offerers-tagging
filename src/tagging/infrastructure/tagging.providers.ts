@@ -7,12 +7,14 @@ import { createPresigner } from './services/spaces-presigner.service';
 import { SpacesTaggingRepository } from './repositories/spaces-tagging.repository';
 import { ListTaggingTasksUsecase } from '../application/usecases/list-tagging-tasks.usecase';
 import { SaveTaggingResultUsecase } from '../application/usecases/save-tagging-result.usecase';
+import { DeleteTaggingResultUsecase } from '../application/usecases/delete-tagging-result.usecase';
 import { GetTaggingStatsUsecase } from '../application/usecases/get-tagging-stats.usecase';
 import { TaggingTaskRepository } from '../domain/repositories/tagging-task.repository';
 
 export const TAGGING_TASK_REPOSITORY = 'TAGGING_TASK_REPOSITORY';
 export const LIST_TAGGING_TASKS_USECASE = 'LIST_TAGGING_TASKS_USECASE';
 export const SAVE_TAGGING_RESULT_USECASE = 'SAVE_TAGGING_RESULT_USECASE';
+export const DELETE_TAGGING_RESULT_USECASE = 'DELETE_TAGGING_RESULT_USECASE';
 export const GET_TAGGING_STATS_USECASE = 'GET_TAGGING_STATS_USECASE';
 
 export function createTaggingProviders(): Provider[] {
@@ -35,6 +37,12 @@ export function createTaggingProviders(): Provider[] {
       provide: SAVE_TAGGING_RESULT_USECASE,
       useFactory: (repo: TaggingTaskRepository) =>
         new SaveTaggingResultUsecase(repo),
+      inject: [TAGGING_TASK_REPOSITORY],
+    },
+    {
+      provide: DELETE_TAGGING_RESULT_USECASE,
+      useFactory: (repo: TaggingTaskRepository) =>
+        new DeleteTaggingResultUsecase(repo),
       inject: [TAGGING_TASK_REPOSITORY],
     },
     {

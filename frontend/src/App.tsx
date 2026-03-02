@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { fetchTasks, fetchStats, saveResult, type TaggingTask } from './api/tagging'
+import { fetchTasks, fetchStats, saveResult, deleteResult, type TaggingTask } from './api/tagging'
 import './App.css'
 
 function PdfBadges({ task }: { task: TaggingTask }) {
@@ -33,16 +33,25 @@ function PdfBadges({ task }: { task: TaggingTask }) {
 
 function TaskCard({
   task,
-  onSave,
+  onTaskSaved,
+  onTaskDiscarded,
+  onTaskUndone,
+  variant,
 }: {
   task: TaggingTask
-  onSave: () => void
+  onTaskSaved?: (tenderId: string, offererCount: number) => void
+  onTaskDiscarded?: (tenderId: string) => void
+  onTaskUndone?: (tenderId: string) => void
+  variant: 'pending' | 'completed' | 'discarded'
 }) {
   const [offererCount, setOffererCount] = useState<string>(
     String(task.savedOffererCount ?? task.offerers?.length ?? 0)
   )
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(!!task.saved)
+  const [discarding, setDiscarding] = useState(false)
+  const [undoing, setUndoing] = useState(false)
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
   const [expanded, setExpanded] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -58,11 +67,39 @@ function TaskCard({
         offererCount: n,
       })
       setSaved(true)
-      onSave()
+      onTaskSaved?.(task.tenderId, n)
     } catch {
       setSaving(false)
     }
     setSaving(false)
+  }
+
+  const handleDiscard = async () => {
+    setDiscarding(true)
+    try {
+      await saveResult({
+        ocid: task.ocid,
+        tenderId: task.tenderId,
+        awardIds: task.awardIds,
+        discarded: true,
+      })
+      onTaskDiscarded?.(task.tenderId)
+    } catch {
+      setShowDiscardConfirm(false)
+    }
+    setDiscarding(false)
+    setShowDiscardConfirm(false)
+  }
+
+  const handleUndo = async () => {
+    setUndoing(true)
+    try {
+      await deleteResult(task.tenderId)
+      onTaskUndone?.(task.tenderId)
+    } catch {
+      // ignore
+    }
+    setUndoing(false)
   }
 
   const hasPdfs = task.pdfAdaUrl || task.pdfCcoUrl
@@ -75,7 +112,7 @@ function TaskCard({
   }, [task.saved, task.savedOffererCount])
 
   return (
-    <article className="task-card">
+    <article className={`task-card task-card-${variant}`}>
       <header className="task-card-header" onClick={() => setExpanded(!expanded)}>
         <div className="task-card-title-row">
           <h2>
@@ -92,21 +129,68 @@ function TaskCard({
         ) : null}
       </header>
       <div className="task-body">
-        <form onSubmit={handleSubmit} className="tag-form">
-          <label>
-            Cantidad de oferentes:
-            <input
-              type="number"
-              min={0}
-              value={offererCount}
-              onChange={(e) => setOffererCount(e.target.value)}
-              disabled={saved}
-            />
-          </label>
-          <button type="submit" disabled={saving || saved}>
-            {saved ? 'Guardado' : saving ? 'Guardando…' : 'Guardar tag'}
-          </button>
-        </form>
+        {variant === 'discarded' ? (
+          <div className="tag-form tag-form-discarded">
+            <span className="discarded-label">Descartada (PDFs incorrectos)</span>
+            <button
+              type="button"
+              className="btn-undo"
+              onClick={handleUndo}
+              disabled={undoing}
+            >
+              {undoing ? 'Deshaciendo…' : 'Deshacer'}
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="tag-form">
+            <label>
+              Cantidad de oferentes:
+              <input
+                type="number"
+                min={0}
+                value={offererCount}
+                onChange={(e) => setOffererCount(e.target.value)}
+                disabled={saved}
+              />
+            </label>
+            <div className="tag-form-actions">
+              <button type="submit" disabled={saving || saved}>
+                {saved ? 'Guardado' : saving ? 'Guardando…' : 'Guardar tag'}
+              </button>
+              {variant === 'pending' && (
+                <button
+                  type="button"
+                  className="btn-discard"
+                  onClick={(e) => { e.stopPropagation(); setShowDiscardConfirm(true); }}
+                  disabled={saving || saved}
+                >
+                  Descartar
+                </button>
+              )}
+            </div>
+          </form>
+        )}
+        {showDiscardConfirm && (
+          <div className="modal-overlay" onClick={() => setShowDiscardConfirm(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h3>¿Descartar esta tarea?</h3>
+              <p>Los PDFs no son correctos. La tarea pasará a &quot;Descartadas&quot; y podrás deshacerlo más tarde.</p>
+              <div className="modal-actions">
+                <button type="button" onClick={() => setShowDiscardConfirm(false)}>
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn-discard-confirm"
+                  onClick={handleDiscard}
+                  disabled={discarding}
+                >
+                  {discarding ? 'Descartando…' : 'Sí, descartar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {expanded && hasPdfs && (
           <section className="pdf-section">
             {task.pdfAdaUrl && (
@@ -143,10 +227,11 @@ const PAGE_SIZE = 25
 
 export default function App() {
   const [tasks, setTasks] = useState<TaggingTask[]>([])
-  const [stats, setStats] = useState<{ total: number; saved: number } | null>(null)
+  const [stats, setStats] = useState<{ total: number; saved: number; discarded: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showCompleted, setShowCompleted] = useState(false)
+  const [showDiscarded, setShowDiscarded] = useState(false)
   const [page, setPage] = useState(0)
 
   const loadTasks = async (pageNum = 0) => {
@@ -174,15 +259,43 @@ export default function App() {
     loadTasks(p)
   }
 
-  const onSave = () => {
-    loadTasks(page)
-    fetchStats().then(setStats)
+  const updateTaskOptimistic = (tenderId: string, updates: Partial<TaggingTask>) => {
+    setTasks((prev) =>
+      prev.map((t) => (t.tenderId === tenderId ? { ...t, ...updates } : t))
+    )
+  }
+
+  const updateStatsOptimistic = (delta: { saved?: number; discarded?: number }) => {
+    setStats((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        saved: prev.saved + (delta.saved ?? 0),
+        discarded: prev.discarded + (delta.discarded ?? 0),
+      }
+    })
+  }
+
+  const onTaskSaved = (tenderId: string, offererCount: number) => {
+    updateTaskOptimistic(tenderId, { saved: true, savedOffererCount: offererCount })
+    updateStatsOptimistic({ saved: 1 })
+  }
+
+  const onTaskDiscarded = (tenderId: string) => {
+    updateTaskOptimistic(tenderId, { discarded: true })
+    updateStatsOptimistic({ discarded: 1 })
+  }
+
+  const onTaskUndone = (tenderId: string) => {
+    updateTaskOptimistic(tenderId, { discarded: false, saved: false, savedOffererCount: undefined })
+    updateStatsOptimistic({ discarded: -1 })
   }
 
   const totalPages = stats ? Math.ceil(stats.total / PAGE_SIZE) : 0
 
-  const pending = tasks.filter((t) => !t.saved)
+  const pending = tasks.filter((t) => !t.saved && !t.discarded)
   const completed = tasks.filter((t) => t.saved)
+  const discarded = tasks.filter((t) => t.discarded)
 
   const adaCount = tasks.filter((t) => t.pdfAdaUrl).length
   const ccoCount = tasks.filter((t) => t.pdfCcoUrl).length
@@ -207,6 +320,7 @@ export default function App() {
               <span>{stats.total} tareas</span>
               <span>{pending.length} pendientes</span>
               <span>{stats.saved} completadas</span>
+              <span>{stats.discarded ?? 0} descartadas</span>
               <span>ADA: {adaCount}/{tasks.length}</span>
               <span>CCO: {ccoCount}/{tasks.length}</span>
             </div>
@@ -253,7 +367,13 @@ export default function App() {
             <div className="task-list">
               {pending.length > 0 ? (
                 pending.map((task) => (
-                  <TaskCard key={task.tenderId} task={task} onSave={onSave} />
+                  <TaskCard
+                    key={task.tenderId}
+                    task={task}
+                    onTaskSaved={onTaskSaved}
+                    onTaskDiscarded={onTaskDiscarded}
+                    variant="pending"
+                  />
                 ))
               ) : (
                 <p className="section-empty">No hay tareas pendientes.</p>
@@ -271,8 +391,37 @@ export default function App() {
             {showCompleted && (
               <div className="task-list">
                 {completed.map((task) => (
-                  <TaskCard key={task.tenderId} task={task} onSave={onSave} />
+                  <TaskCard
+                    key={task.tenderId}
+                    task={task}
+                    variant="completed"
+                  />
                 ))}
+              </div>
+            )}
+          </section>
+          <section className="task-section task-section-discarded">
+            <button
+              type="button"
+              className="section-toggle"
+              onClick={() => setShowDiscarded(!showDiscarded)}
+            >
+              {showDiscarded ? '▼' : '▶'} Descartadas ({stats?.discarded ?? discarded.length})
+            </button>
+            {showDiscarded && (
+              <div className="task-list">
+                {discarded.length > 0 ? (
+                  discarded.map((task) => (
+                    <TaskCard
+                      key={task.tenderId}
+                      task={task}
+                      onTaskUndone={onTaskUndone}
+                      variant="discarded"
+                    />
+                  ))
+                ) : (
+                  <p className="section-empty">No hay tareas descartadas.</p>
+                )}
               </div>
             )}
           </section>

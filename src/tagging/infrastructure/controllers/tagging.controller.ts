@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Query, Param } from '@nestjs/common';
 import { TaggingService } from '../services/tagging.service';
 import { SaveResultDto } from '../dto/save-result.dto';
 
@@ -28,6 +28,12 @@ export class TaggingController {
   @Post('result')
   async saveResult(@Body() dto: SaveResultDto) {
     await this.taggingService.saveResult(dto);
+    return { success: true };
+  }
+
+  @Delete('result/:tenderId')
+  async deleteResult(@Param('tenderId') tenderId: string) {
+    await this.taggingService.deleteResult(tenderId);
     return { success: true };
   }
 }

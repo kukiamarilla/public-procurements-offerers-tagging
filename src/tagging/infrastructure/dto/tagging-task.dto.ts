@@ -8,5 +8,6 @@ export interface TaggingTaskDto {
   pdfCcoUrl?: string;
   saved?: boolean;
   savedOffererCount?: number;
+  discarded?: boolean;
   metadata?: Record<string, unknown>;
 }

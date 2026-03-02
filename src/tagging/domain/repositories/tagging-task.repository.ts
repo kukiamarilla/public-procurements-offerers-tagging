@@ -11,6 +11,7 @@ export interface ListTasksInput {
 export interface TaggingStats {
   total: number;
   saved: number;
+  discarded: number;
 }
 
 export interface TaggingTaskRepository {
@@ -19,4 +20,6 @@ export interface TaggingTaskRepository {
   getStats(): Promise<TaggingStats>;
 
   saveResult(result: TaggingResultModel): Promise<void>;
+
+  deleteResult(tenderId: string): Promise<void>;
 }

@@ -2,10 +2,12 @@ import { Injectable, Inject } from '@nestjs/common';
 import {
   LIST_TAGGING_TASKS_USECASE,
   SAVE_TAGGING_RESULT_USECASE,
+  DELETE_TAGGING_RESULT_USECASE,
   GET_TAGGING_STATS_USECASE,
 } from '../tagging.providers';
 import { ListTaggingTasksUsecase } from '../../application/usecases/list-tagging-tasks.usecase';
 import { SaveTaggingResultUsecase } from '../../application/usecases/save-tagging-result.usecase';
+import { DeleteTaggingResultUsecase } from '../../application/usecases/delete-tagging-result.usecase';
 import { GetTaggingStatsUsecase } from '../../application/usecases/get-tagging-stats.usecase';
 import { taggingTaskToDto } from '../data-mappers/tagging-task.data-mapper';
 import { TaggingTaskDto } from '../dto/tagging-task.dto';
@@ -18,6 +20,8 @@ export class TaggingService {
     private readonly listTasksUsecase: ListTaggingTasksUsecase,
     @Inject(SAVE_TAGGING_RESULT_USECASE)
     private readonly saveResultUsecase: SaveTaggingResultUsecase,
+    @Inject(DELETE_TAGGING_RESULT_USECASE)
+    private readonly deleteResultUsecase: DeleteTaggingResultUsecase,
     @Inject(GET_TAGGING_STATS_USECASE)
     private readonly getStatsUsecase: GetTaggingStatsUsecase,
   ) {}
@@ -27,7 +31,7 @@ export class TaggingService {
     return tasks.map(taggingTaskToDto);
   }
 
-  async getStats(): Promise<{ total: number; saved: number }> {
+  async getStats(): Promise<{ total: number; saved: number; discarded: number }> {
     return this.getStatsUsecase.execute();
   }
 
@@ -37,7 +41,12 @@ export class TaggingService {
       tenderId: dto.tenderId,
       awardIds: dto.awardIds,
       offererCount: dto.offererCount,
+      discarded: dto.discarded,
       metadata: dto.metadata,
     });
+  }
+
+  async deleteResult(tenderId: string): Promise<void> {
+    await this.deleteResultUsecase.execute(tenderId);
   }
 }

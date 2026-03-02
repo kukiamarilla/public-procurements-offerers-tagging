@@ -15,6 +15,7 @@ export interface TaggingTask {
   pdfCcoUrl?: string;
   saved?: boolean;
   savedOffererCount?: number;
+  discarded?: boolean;
   metadata?: Record<string, unknown>;
 }
 
@@ -22,13 +23,15 @@ export interface SaveResultBody {
   ocid?: string;
   tenderId: string;
   awardIds?: string[];
-  offererCount: number;
+  offererCount?: number;
+  discarded?: boolean;
   metadata?: Record<string, unknown>;
 }
 
 export interface TaggingStats {
   total: number;
   saved: number;
+  discarded: number;
 }
 
 export async function fetchStats(): Promise<TaggingStats> {
@@ -57,4 +60,11 @@ export async function saveResult(body: SaveResultBody): Promise<void> {
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Failed to save result: ${res.status}`);
+}
+
+export async function deleteResult(tenderId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/tagging/result/${encodeURIComponent(tenderId)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`Failed to delete result: ${res.status}`);
 }

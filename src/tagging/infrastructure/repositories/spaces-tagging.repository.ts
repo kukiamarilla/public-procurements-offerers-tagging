@@ -3,6 +3,7 @@ import {
   ListObjectsV2Command,
   GetObjectCommand,
   PutObjectCommand,
+  DeleteObjectCommand,
   HeadObjectCommand,
 } from '@aws-sdk/client-s3';
 import { TaggingTaskRepository, ListTasksInput, TaggingStats } from '../../domain/repositories/tagging-task.repository';
@@ -101,8 +102,12 @@ export class SpacesTaggingRepository implements TaggingTaskRepository {
     return { tenderIdsWithPdf, adaTenderIds, ccoTenderIds, resultTenderIds };
   }
 
-  private async fetchOffererCountsForTenderIds(tenderIds: string[]): Promise<Map<string, number>> {
-    const map = new Map<string, number>();
+  private async fetchOffererCountsForTenderIds(tenderIds: string[]): Promise<{
+    offererCounts: Map<string, number>;
+    discardedTenderIds: Set<string>;
+  }> {
+    const offererCounts = new Map<string, number>();
+    const discardedTenderIds = new Set<string>();
     const bodies = await Promise.all(
       tenderIds.map((tenderId) =>
         this.getObjectBody(key(this.config.prefixResults, `${tenderId}.json`)).catch(() => ''),
@@ -110,15 +115,17 @@ export class SpacesTaggingRepository implements TaggingTaskRepository {
     );
     bodies.forEach((body, i) => {
       try {
-        const data = JSON.parse(body || '{}') as { offererCount?: number };
-        if (typeof data.offererCount === 'number') {
-          map.set(tenderIds[i], data.offererCount);
+        const data = JSON.parse(body || '{}') as { offererCount?: number; discarded?: boolean };
+        if (data.discarded === true) {
+          discardedTenderIds.add(tenderIds[i]);
+        } else if (typeof data.offererCount === 'number') {
+          offererCounts.set(tenderIds[i], data.offererCount);
         }
       } catch {
         // ignore
       }
     });
-    return map;
+    return { offererCounts, discardedTenderIds };
   }
 
   /**
@@ -148,16 +155,16 @@ export class SpacesTaggingRepository implements TaggingTaskRepository {
     const tenderIdsWithResults = slice
       .filter((t) => availability.resultTenderIds.has(t.tenderId))
       .map((t) => t.tenderId);
-    const resultOffererCounts = tenderIdsWithResults.length > 0
+    const resultData = tenderIdsWithResults.length > 0
       ? await this.fetchOffererCountsForTenderIds(tenderIdsWithResults)
-      : new Map<string, number>();
+      : { offererCounts: new Map<string, number>(), discardedTenderIds: new Set<string>() };
 
     const tasks = await Promise.all(
       slice.map(({ ocid, tenderId, awardIds, inputKey }) =>
         this.buildTaskForTenderFast(
           { ocid, tenderId, awardIds },
           inputKey,
-          { ...availability, resultOffererCounts },
+          { ...availability, ...resultData },
         ),
       ),
     );
@@ -165,7 +172,11 @@ export class SpacesTaggingRepository implements TaggingTaskRepository {
     const filtered = tasks.filter((t): t is TaggingTaskModel => t !== null);
 
     if (pendingFirst) {
-      filtered.sort((a, b) => (a.saved === b.saved ? 0 : a.saved ? 1 : -1));
+      filtered.sort((a, b) => {
+        if (a.discarded !== b.discarded) return a.discarded ? 1 : -1;
+        if (a.saved !== b.saved) return a.saved ? 1 : -1;
+        return 0;
+      });
       return filtered.slice(offset, offset + limit);
     }
     return filtered;
@@ -176,7 +187,7 @@ export class SpacesTaggingRepository implements TaggingTaskRepository {
     const total = tenderIds.length;
 
     const tenderIdSet = new Set(tenderIds.map((t) => t.tenderId));
-    let saved = 0;
+    const resultKeys = new Set<string>();
     let continuationToken: string | undefined;
 
     do {
@@ -193,13 +204,24 @@ export class SpacesTaggingRepository implements TaggingTaskRepository {
         if (k?.endsWith('.json')) {
           const filename = k.split('/').pop() ?? '';
           const tenderId = filename.replace(/\.json$/, '');
-          if (tenderIdSet.has(tenderId)) saved++;
+          if (tenderIdSet.has(tenderId)) resultKeys.add(tenderId);
         }
       }
       continuationToken = result.IsTruncated ? result.NextContinuationToken : undefined;
     } while (continuationToken);
 
-    return { total, saved };
+    let saved = 0;
+    let discarded = 0;
+    const resultIds = Array.from(resultKeys);
+    if (resultIds.length > 0) {
+      const data = await this.fetchOffererCountsForTenderIds(resultIds);
+      for (const id of resultIds) {
+        if (data.discardedTenderIds.has(id)) discarded++;
+        else if (data.offererCounts.has(id)) saved++;
+      }
+    }
+
+    return { total, saved, discarded };
   }
 
   /**
@@ -285,7 +307,8 @@ export class SpacesTaggingRepository implements TaggingTaskRepository {
       adaTenderIds: Set<string>;
       ccoTenderIds: Set<string>;
       resultTenderIds: Set<string>;
-      resultOffererCounts?: Map<string, number>;
+      offererCounts?: Map<string, number>;
+      discardedTenderIds?: Set<string>;
     },
   ): Promise<TaggingTaskModel | null> {
     try {
@@ -311,8 +334,9 @@ export class SpacesTaggingRepository implements TaggingTaskRepository {
         pdfCcoUrl = urls[1];
       }
 
-      const saved = resultExists;
-      const savedOffererCount = availability.resultOffererCounts?.get(tenderId);
+      const discarded = availability.discardedTenderIds?.has(tenderId) ?? false;
+      const saved = resultExists && !discarded;
+      const savedOffererCount = availability.offererCounts?.get(tenderId);
 
       return {
         ocid: parsed.ocid ?? ocid,
@@ -323,6 +347,7 @@ export class SpacesTaggingRepository implements TaggingTaskRepository {
         pdfCcoUrl,
         saved,
         savedOffererCount,
+        discarded,
         metadata: parsed.metadata,
       };
     } catch {
@@ -475,6 +500,16 @@ export class SpacesTaggingRepository implements TaggingTaskRepository {
         Key: resultKey,
         Body: body,
         ContentType: 'application/json',
+      }),
+    );
+  }
+
+  async deleteResult(tenderId: string): Promise<void> {
+    const resultKey = key(this.config.prefixResults, `${tenderId}.json`);
+    await this.client.send(
+      new DeleteObjectCommand({
+        Bucket: this.config.bucket,
+        Key: resultKey,
       }),
     );
   }

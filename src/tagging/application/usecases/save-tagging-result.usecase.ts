@@ -5,7 +5,8 @@ export interface SaveTaggingResultInput {
   ocid?: string;
   tenderId: string;
   awardIds?: string[];
-  offererCount: number;
+  offererCount?: number;
+  discarded?: boolean;
   metadata?: Record<string, unknown>;
 }
 
@@ -18,6 +19,7 @@ export class SaveTaggingResultUsecase {
       tenderId: input.tenderId,
       awardIds: input.awardIds,
       offererCount: input.offererCount,
+      discarded: input.discarded,
       taggedAt: new Date().toISOString(),
       metadata: input.metadata,
     };

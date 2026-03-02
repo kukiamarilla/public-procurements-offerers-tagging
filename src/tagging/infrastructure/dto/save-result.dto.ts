@@ -2,6 +2,7 @@ export interface SaveResultDto {
   ocid?: string;
   tenderId: string;
   awardIds?: string[];
-  offererCount: number;
+  offererCount?: number;
+  discarded?: boolean;
   metadata?: Record<string, unknown>;
 }
