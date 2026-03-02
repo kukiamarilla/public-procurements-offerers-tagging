@@ -223,6 +223,14 @@ function findDocumentByType(docs: { documentTypeDetails?: string; url?: string }
   return docs?.find((d) => d.documentTypeDetails === type && d.url);
 }
 
+function renderProgressBar(current: number, total: number, width = 40): string {
+  const pct = total > 0 ? Math.min(100, (current / total) * 100) : 0;
+  const filled = Math.round((pct / 100) * width);
+  const empty = width - filled;
+  const bar = '█'.repeat(filled) + '░'.repeat(empty);
+  return `[${bar}] ${current}/${total} (${pct.toFixed(1)}%)`;
+}
+
 async function processOne(
   client: S3Client,
   bucket: string,
@@ -319,10 +327,12 @@ async function main() {
 
   for (let i = startIndex; i < ids.length; i++) {
     const item = ids[i];
-    if (processedSet.has(item.tenderId)) continue;
+    if (processedSet.has(item.tenderId)) {
+      process.stdout.write(`\r${renderProgressBar(i + 1, ids.length)} (omitido)    `);
+      continue;
+    }
 
-    const progress = `[${i + 1}/${ids.length}] ${item.tenderId}`;
-    process.stdout.write(`${progress} ... `);
+    process.stdout.write(`\r${renderProgressBar(i, ids.length)} — ${item.tenderId.slice(0, 50)}...`);
 
     const { ada, cco } = await processOne(client, bucket, prefixPdfs, item, i, ids.length);
     if (ada) adaCount++;
@@ -334,16 +344,14 @@ async function main() {
       lastIndex: i + 1,
     });
 
-    const parts: string[] = [];
-    if (ada) parts.push('ADA ✓');
-    else parts.push('ADA -');
-    if (cco) parts.push('CCO ✓');
-    else parts.push('CCO -');
-    console.log(parts.join(' '));
+    const adaStr = ada ? 'ADA ✓' : 'ADA -';
+    const ccoStr = cco ? 'CCO ✓' : 'CCO -';
+    process.stdout.write(`\r${renderProgressBar(i + 1, ids.length)} ${adaStr} ${ccoStr}   \n`);
 
     if (i < ids.length - 1) await sleep(DELAY_MS);
   }
 
+  console.log(`\r${renderProgressBar(ids.length, ids.length)} Completado`);
   console.log('');
   console.log('--- Resumen ---');
   console.log(`  Actas de Apertura subidas: ${adaCount}`);
