@@ -164,11 +164,24 @@ body {
   gap: 1rem;
 }
 
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
 .section-title {
   margin: 0;
   font-size: 1.1rem;
   font-weight: 600;
   color: var(--text);
+}
+
+.pagination-inline {
+  margin: 0;
+  padding: 0;
 }
 
 .section-empty {
@@ -198,6 +211,40 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+}
+
+.task-list-with-spinner {
+  min-height: 120px;
+}
+
+.section-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 2rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.section-spinner-full {
+  min-height: 200px;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .task-card {

@@ -226,23 +226,50 @@ function TaskCard({
 const PAGE_SIZE = 25
 
 export default function App() {
-  const [tasks, setTasks] = useState<TaggingTask[]>([])
+  const [pendingTasks, setPendingTasks] = useState<TaggingTask[]>([])
+  const [completedTasks, setCompletedTasks] = useState<TaggingTask[]>([])
+  const [discardedTasks, setDiscardedTasks] = useState<TaggingTask[]>([])
   const [stats, setStats] = useState<{ total: number; saved: number; discarded: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showCompleted, setShowCompleted] = useState(false)
   const [showDiscarded, setShowDiscarded] = useState(false)
-  const [page, setPage] = useState(0)
+  const [pagePending, setPagePending] = useState(0)
+  const [pageCompleted, setPageCompleted] = useState(0)
+  const [pageDiscarded, setPageDiscarded] = useState(0)
+  const [loadingPending, setLoadingPending] = useState(false)
+  const [loadingCompleted, setLoadingCompleted] = useState(false)
+  const [loadingDiscarded, setLoadingDiscarded] = useState(false)
 
-  const loadTasks = async (pageNum = 0) => {
+  const loadSection = async (
+    status: 'pending' | 'saved' | 'discarded',
+    pageNum: number,
+    setter: React.Dispatch<React.SetStateAction<TaggingTask[]>>,
+    setLoading: React.Dispatch<React.SetStateAction<boolean>>
+  ) => {
+    setLoading(true)
+    try {
+      const tasksData = await fetchTasks(PAGE_SIZE, pageNum * PAGE_SIZE, { status })
+      setter(tasksData)
+    } catch (e) {
+      setError(String(e))
+    }
+    setLoading(false)
+  }
+
+  const loadAll = async () => {
     setLoading(true)
     setError(null)
     try {
-      const [tasksData, statsData] = await Promise.all([
-        fetchTasks(PAGE_SIZE, pageNum * PAGE_SIZE, true),
+      const [pendingData, completedData, discardedData, statsData] = await Promise.all([
+        fetchTasks(PAGE_SIZE, 0, { status: 'pending' }),
+        fetchTasks(PAGE_SIZE, 0, { status: 'saved' }),
+        fetchTasks(PAGE_SIZE, 0, { status: 'discarded' }),
         fetchStats(),
       ])
-      setTasks(tasksData)
+      setPendingTasks(pendingData)
+      setCompletedTasks(completedData)
+      setDiscardedTasks(discardedData)
       setStats(statsData)
     } catch (e) {
       setError(String(e))
@@ -251,18 +278,22 @@ export default function App() {
   }
 
   useEffect(() => {
-    loadTasks(0)
+    loadAll()
   }, [])
 
-  const goToPage = (p: number) => {
-    setPage(p)
-    loadTasks(p)
+  const loadPending = (p: number) => {
+    setPagePending(p)
+    loadSection('pending', p, setPendingTasks, setLoadingPending)
   }
 
-  const updateTaskOptimistic = (tenderId: string, updates: Partial<TaggingTask>) => {
-    setTasks((prev) =>
-      prev.map((t) => (t.tenderId === tenderId ? { ...t, ...updates } : t))
-    )
+  const loadCompleted = (p: number) => {
+    setPageCompleted(p)
+    loadSection('saved', p, setCompletedTasks, setLoadingCompleted)
+  }
+
+  const loadDiscarded = (p: number) => {
+    setPageDiscarded(p)
+    loadSection('discarded', p, setDiscardedTasks, setLoadingDiscarded)
   }
 
   const updateStatsOptimistic = (delta: { saved?: number; discarded?: number }) => {
@@ -277,28 +308,43 @@ export default function App() {
   }
 
   const onTaskSaved = (tenderId: string, offererCount: number) => {
-    updateTaskOptimistic(tenderId, { saved: true, savedOffererCount: offererCount })
-    updateStatsOptimistic({ saved: 1 })
+    const task = pendingTasks.find((t) => t.tenderId === tenderId)
+    if (task) {
+      const updated = { ...task, saved: true, savedOffererCount: offererCount }
+      setPendingTasks((prev) => prev.filter((t) => t.tenderId !== tenderId))
+      setCompletedTasks((prev) => [updated, ...prev])
+      updateStatsOptimistic({ saved: 1 })
+    }
   }
 
   const onTaskDiscarded = (tenderId: string) => {
-    updateTaskOptimistic(tenderId, { discarded: true })
-    updateStatsOptimistic({ discarded: 1 })
+    const task = pendingTasks.find((t) => t.tenderId === tenderId)
+    if (task) {
+      const updated = { ...task, discarded: true }
+      setPendingTasks((prev) => prev.filter((t) => t.tenderId !== tenderId))
+      setDiscardedTasks((prev) => [updated, ...prev])
+      updateStatsOptimistic({ discarded: 1 })
+    }
   }
 
   const onTaskUndone = (tenderId: string) => {
-    updateTaskOptimistic(tenderId, { discarded: false, saved: false, savedOffererCount: undefined })
-    updateStatsOptimistic({ discarded: -1 })
+    const task = discardedTasks.find((t) => t.tenderId === tenderId)
+    if (task) {
+      const updated = { ...task, discarded: false, saved: false, savedOffererCount: undefined }
+      setDiscardedTasks((prev) => prev.filter((t) => t.tenderId !== tenderId))
+      setPendingTasks((prev) => [updated, ...prev])
+      updateStatsOptimistic({ discarded: -1 })
+    }
   }
 
-  const totalPages = stats ? Math.ceil(stats.total / PAGE_SIZE) : 0
+  const pendingCount = stats ? stats.total - stats.saved - stats.discarded : 0
+  const totalPagesPending = Math.ceil(pendingCount / PAGE_SIZE)
+  const totalPagesCompleted = Math.ceil((stats?.saved ?? 0) / PAGE_SIZE)
+  const totalPagesDiscarded = Math.ceil((stats?.discarded ?? 0) / PAGE_SIZE)
 
-  const pending = tasks.filter((t) => !t.saved && !t.discarded)
-  const completed = tasks.filter((t) => t.saved)
-  const discarded = tasks.filter((t) => t.discarded)
-
-  const adaCount = tasks.filter((t) => t.pdfAdaUrl).length
-  const ccoCount = tasks.filter((t) => t.pdfCcoUrl).length
+  const allLoadedTasks = [...pendingTasks, ...completedTasks, ...discardedTasks]
+  const adaCount = allLoadedTasks.filter((t) => t.pdfAdaUrl).length
+  const ccoCount = allLoadedTasks.filter((t) => t.pdfCcoUrl).length
 
   return (
     <div className="app">
@@ -318,55 +364,67 @@ export default function App() {
             </div>
             <div className="stats">
               <span>{stats.total} tareas</span>
-              <span>{pending.length} pendientes</span>
+              <span>{pendingCount} pendientes</span>
               <span>{stats.saved} completadas</span>
               <span>{stats.discarded ?? 0} descartadas</span>
-              <span>ADA: {adaCount}/{tasks.length}</span>
-              <span>CCO: {ccoCount}/{tasks.length}</span>
+              <span>ADA: {adaCount}/{allLoadedTasks.length}</span>
+              <span>CCO: {ccoCount}/{allLoadedTasks.length}</span>
             </div>
           </>
         )}
       </header>
-      {loading && <p>Cargando tareas…</p>}
+      {loading && (
+        <div className="section-spinner section-spinner-full" aria-label="Cargando">
+          <span className="spinner" />
+          <span>Cargando tareas…</span>
+        </div>
+      )}
       {error && (
         <div className="error">
           Error: {error}
-          <button onClick={() => { setPage(0); loadTasks(0); }}>Reintentar</button>
+          <button onClick={() => loadAll()}>Reintentar</button>
         </div>
       )}
-      {!loading && !error && tasks.length === 0 && (
+      {!loading && !error && stats?.total === 0 && (
         <p className="empty">
           No hay tareas. Sube archivos en el prefix de input del bucket (ids.json, ids.txt o {`{tenderId}.json`}).
         </p>
       )}
-      {!loading && !error && (tasks.length > 0 || stats) && (
+      {!loading && !error && stats && stats.total > 0 && (
         <div className="task-sections">
-          {totalPages > 1 && (
-            <nav className="pagination">
-              <button
-                type="button"
-                disabled={page <= 0 || loading}
-                onClick={() => goToPage(page - 1)}
-              >
-                ← Anterior
-              </button>
-              <span className="pagination-info">
-                Página {page + 1} de {totalPages}
-              </span>
-              <button
-                type="button"
-                disabled={page >= totalPages - 1 || loading}
-                onClick={() => goToPage(page + 1)}
-              >
-                Siguiente →
-              </button>
-            </nav>
-          )}
           <section className="task-section task-section-pending">
-            <h2 className="section-title">Pendientes ({pending.length})</h2>
-            <div className="task-list">
-              {pending.length > 0 ? (
-                pending.map((task) => (
+            <div className="section-header">
+              <h2 className="section-title">Pendientes ({pendingCount})</h2>
+              {totalPagesPending > 1 && (
+                <nav className="pagination pagination-inline">
+                  <button
+                    type="button"
+                    disabled={pagePending <= 0 || loadingPending}
+                    onClick={() => loadPending(pagePending - 1)}
+                  >
+                    ←
+                  </button>
+                  <span className="pagination-info">
+                    {pagePending + 1} / {totalPagesPending}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={pagePending >= totalPagesPending - 1 || loadingPending}
+                    onClick={() => loadPending(pagePending + 1)}
+                  >
+                    →
+                  </button>
+                </nav>
+              )}
+            </div>
+            <div className="task-list task-list-with-spinner">
+              {loadingPending ? (
+                <div className="section-spinner" aria-label="Cargando">
+                  <span className="spinner" />
+                  <span>Cargando tareas…</span>
+                </div>
+              ) : pendingTasks.length > 0 ? (
+                pendingTasks.map((task) => (
                   <TaskCard
                     key={task.tenderId}
                     task={task}
@@ -386,18 +444,50 @@ export default function App() {
               className="section-toggle"
               onClick={() => setShowCompleted(!showCompleted)}
             >
-              {showCompleted ? '▼' : '▶'} Completadas ({stats?.saved ?? completed.length})
+              {showCompleted ? '▼' : '▶'} Completadas ({stats.saved})
             </button>
             {showCompleted && (
-              <div className="task-list">
-                {completed.map((task) => (
-                  <TaskCard
-                    key={task.tenderId}
-                    task={task}
-                    variant="completed"
-                  />
-                ))}
-              </div>
+              <>
+                {totalPagesCompleted > 1 && (
+                  <nav className="pagination pagination-inline">
+                    <button
+                      type="button"
+                      disabled={pageCompleted <= 0 || loadingCompleted}
+                      onClick={() => loadCompleted(pageCompleted - 1)}
+                    >
+                      ←
+                    </button>
+                    <span className="pagination-info">
+                      {pageCompleted + 1} / {totalPagesCompleted}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={pageCompleted >= totalPagesCompleted - 1 || loadingCompleted}
+                      onClick={() => loadCompleted(pageCompleted + 1)}
+                    >
+                      →
+                    </button>
+                  </nav>
+                )}
+                <div className="task-list task-list-with-spinner">
+                  {loadingCompleted ? (
+                    <div className="section-spinner" aria-label="Cargando">
+                      <span className="spinner" />
+                      <span>Cargando tareas…</span>
+                    </div>
+                  ) : completedTasks.length > 0 ? (
+                    completedTasks.map((task) => (
+                      <TaskCard
+                        key={task.tenderId}
+                        task={task}
+                        variant="completed"
+                      />
+                    ))
+                  ) : (
+                    <p className="section-empty">No hay tareas completadas.</p>
+                  )}
+                </div>
+              </>
             )}
           </section>
           <section className="task-section task-section-discarded">
@@ -406,23 +496,51 @@ export default function App() {
               className="section-toggle"
               onClick={() => setShowDiscarded(!showDiscarded)}
             >
-              {showDiscarded ? '▼' : '▶'} Descartadas ({stats?.discarded ?? discarded.length})
+              {showDiscarded ? '▼' : '▶'} Descartadas ({stats.discarded ?? 0})
             </button>
             {showDiscarded && (
-              <div className="task-list">
-                {discarded.length > 0 ? (
-                  discarded.map((task) => (
-                    <TaskCard
-                      key={task.tenderId}
-                      task={task}
-                      onTaskUndone={onTaskUndone}
-                      variant="discarded"
-                    />
-                  ))
-                ) : (
-                  <p className="section-empty">No hay tareas descartadas.</p>
+              <>
+                {totalPagesDiscarded > 1 && (
+                  <nav className="pagination pagination-inline">
+                    <button
+                      type="button"
+                      disabled={pageDiscarded <= 0 || loadingDiscarded}
+                      onClick={() => loadDiscarded(pageDiscarded - 1)}
+                    >
+                      ←
+                    </button>
+                    <span className="pagination-info">
+                      {pageDiscarded + 1} / {totalPagesDiscarded}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={pageDiscarded >= totalPagesDiscarded - 1 || loadingDiscarded}
+                      onClick={() => loadDiscarded(pageDiscarded + 1)}
+                    >
+                      →
+                    </button>
+                  </nav>
                 )}
-              </div>
+                <div className="task-list task-list-with-spinner">
+                  {loadingDiscarded ? (
+                    <div className="section-spinner" aria-label="Cargando">
+                      <span className="spinner" />
+                      <span>Cargando tareas…</span>
+                    </div>
+                  ) : discardedTasks.length > 0 ? (
+                    discardedTasks.map((task) => (
+                      <TaskCard
+                        key={task.tenderId}
+                        task={task}
+                        onTaskUndone={onTaskUndone}
+                        variant="discarded"
+                      />
+                    ))
+                  ) : (
+                    <p className="section-empty">No hay tareas descartadas.</p>
+                  )}
+                </div>
+              </>
             )}
           </section>
         </div>

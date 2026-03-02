@@ -40,11 +40,18 @@ export async function fetchStats(): Promise<TaggingStats> {
   return res.json();
 }
 
-export async function fetchTasks(limit?: number, offset?: number, pendingFirst?: boolean): Promise<TaggingTask[]> {
+export type TaskStatus = 'pending' | 'saved' | 'discarded';
+
+export async function fetchTasks(
+  limit?: number,
+  offset?: number,
+  options?: { pendingFirst?: boolean; status?: TaskStatus }
+): Promise<TaggingTask[]> {
   const params = new URLSearchParams();
   if (limit != null) params.set('limit', String(limit));
   if (offset != null) params.set('offset', String(offset));
-  if (pendingFirst) params.set('pendingFirst', 'true');
+  if (options?.pendingFirst) params.set('pendingFirst', 'true');
+  if (options?.status) params.set('status', options.status);
   const qs = params.toString();
   const url = `${API_BASE}/tagging/tasks${qs ? `?${qs}` : ''}`;
   const res = await fetch(url);

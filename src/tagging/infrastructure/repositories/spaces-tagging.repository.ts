@@ -6,7 +6,7 @@ import {
   DeleteObjectCommand,
   HeadObjectCommand,
 } from '@aws-sdk/client-s3';
-import { TaggingTaskRepository, ListTasksInput, TaggingStats } from '../../domain/repositories/tagging-task.repository';
+import { TaggingTaskRepository, ListTasksInput, TaggingStats, TaskStatusFilter } from '../../domain/repositories/tagging-task.repository';
 import { TaggingTaskModel } from '../../domain/models/tagging-task.model';
 import { TaggingResultModel } from '../../domain/models/tagging-result.model';
 import { DoSpacesConfig } from '../../../shared/infrastructure/config/do-spaces.config';
@@ -144,20 +144,41 @@ export class SpacesTaggingRepository implements TaggingTaskRepository {
     const limit = input?.limit ?? 50;
     const offset = input?.offset ?? 0;
     const pendingFirst = input?.pendingFirst ?? false;
+    const statusFilter = input?.status;
 
     const availability = await this.getPdfAndResultAvailability();
-    const tenderIds = await this.collectTenderIdsWithPdfs(availability);
+    const allTenderInfos = await this.collectTenderIdsWithPdfs(availability);
 
-    const slice = pendingFirst
-      ? tenderIds.slice(0, Math.min(tenderIds.length, offset + limit))
-      : tenderIds.slice(offset, offset + limit);
-
-    const tenderIdsWithResults = slice
+    const tenderIdsWithResults = allTenderInfos
       .filter((t) => availability.resultTenderIds.has(t.tenderId))
       .map((t) => t.tenderId);
     const resultData = tenderIdsWithResults.length > 0
       ? await this.fetchOffererCountsForTenderIds(tenderIdsWithResults)
       : { offererCounts: new Map<string, number>(), discardedTenderIds: new Set<string>() };
+
+    if (statusFilter) {
+      const byStatus = this.classifyTenderInfosByStatus(
+        allTenderInfos,
+        availability.resultTenderIds,
+        resultData,
+      );
+      const list = byStatus[statusFilter];
+      const slice = list.slice(offset, offset + limit);
+      const tasks = await Promise.all(
+        slice.map(({ ocid, tenderId, awardIds, inputKey }) =>
+          this.buildTaskForTenderFast(
+            { ocid, tenderId, awardIds },
+            inputKey,
+            { ...availability, ...resultData },
+          ),
+        ),
+      );
+      return tasks.filter((t): t is TaggingTaskModel => t !== null);
+    }
+
+    const slice = pendingFirst
+      ? allTenderInfos.slice(0, Math.min(allTenderInfos.length, offset + limit))
+      : allTenderInfos.slice(offset, offset + limit);
 
     const tasks = await Promise.all(
       slice.map(({ ocid, tenderId, awardIds, inputKey }) =>
@@ -180,6 +201,26 @@ export class SpacesTaggingRepository implements TaggingTaskRepository {
       return filtered.slice(offset, offset + limit);
     }
     return filtered;
+  }
+
+  private classifyTenderInfosByStatus(
+    tenderInfos: { ocid?: string; tenderId: string; awardIds: string[]; inputKey: string }[],
+    resultTenderIds: Set<string>,
+    resultData: { offererCounts: Map<string, number>; discardedTenderIds: Set<string> },
+  ): Record<TaskStatusFilter, typeof tenderInfos> {
+    const pending: typeof tenderInfos = [];
+    const saved: typeof tenderInfos = [];
+    const discarded: typeof tenderInfos = [];
+    for (const info of tenderInfos) {
+      if (resultData.discardedTenderIds.has(info.tenderId)) {
+        discarded.push(info);
+      } else if (resultData.offererCounts.has(info.tenderId)) {
+        saved.push(info);
+      } else {
+        pending.push(info);
+      }
+    }
+    return { pending, saved, discarded };
   }
 
   async getStats(): Promise<TaggingStats> {

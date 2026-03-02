@@ -26,8 +26,13 @@ export class TaggingService {
     private readonly getStatsUsecase: GetTaggingStatsUsecase,
   ) {}
 
-  async listTasks(limit?: number, offset?: number, pendingFirst?: boolean): Promise<TaggingTaskDto[]> {
-    const tasks = await this.listTasksUsecase.execute({ limit, offset, pendingFirst });
+  async listTasks(
+    limit?: number,
+    offset?: number,
+    pendingFirst?: boolean,
+    status?: 'pending' | 'saved' | 'discarded',
+  ): Promise<TaggingTaskDto[]> {
+    const tasks = await this.listTasksUsecase.execute({ limit, offset, pendingFirst, status });
     return tasks.map(taggingTaskToDto);
   }
 

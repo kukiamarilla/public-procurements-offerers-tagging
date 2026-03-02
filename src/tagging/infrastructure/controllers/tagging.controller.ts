@@ -16,11 +16,13 @@ export class TaggingController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
     @Query('pendingFirst') pendingFirst?: string,
+    @Query('status') status?: 'pending' | 'saved' | 'discarded',
   ) {
     const tasks = await this.taggingService.listTasks(
       limit ? parseInt(limit, 10) : undefined,
       offset ? parseInt(offset, 10) : undefined,
       pendingFirst === 'true' || pendingFirst === '1',
+      status,
     );
     return { tasks };
   }
