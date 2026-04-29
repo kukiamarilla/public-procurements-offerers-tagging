@@ -16,7 +16,10 @@ const RETRY_DELAY_MS = 10000;
 const MAX_RETRIES = 3;
 const LOCAL_BACKUP_DIR = path.join(process.cwd(), 'data', 'checkpoint');
 
-/** Query params dinámicos para la request */
+/**
+ * Filtro DNCP por ítem de catálogo (classification.id).
+ * 72131701 — Pavimentación, construcción, arreglo o hermoseamiento de carreteras o caminos.
+ */
 const QUERY_PARAMS: Record<string, string> = {
   items_per_page: '100',
   'tender.items.classification.id': '72131701',
